@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "data1030-weather-project"
+version = "0.1.0"
+description = "A reproducible seven-city next-day weather baseline pipeline"
+requires-python = ">=3.12"
+dependencies = ["numpy>=2.0", "pandas>=2.2", "scikit-learn>=1.5", "scipy>=1.13", "matplotlib>=3.9", "requests>=2.32", "joblib>=1.4"]
+
+[project.optional-dependencies]
+notebook = ["jupyterlab", "ipykernel", "nbformat", "nbclient"]
+
+[project.scripts]
+weather-project = "weather_project.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
