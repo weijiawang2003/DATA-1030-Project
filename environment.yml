@@ -6,7 +6,5 @@ dependencies:
   - pip
   - pip:
       - -r requirements.txt
-      - jupyterlab
-      - ipykernel
-      - nbformat
-      - nbclient
+      - jupyterlab==4.6.4
+      - ipykernel==7.3.0

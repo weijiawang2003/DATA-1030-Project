@@ -1,3 +1,3 @@
-"""Data, model, and analysis interfaces for the seven-city weather project."""
+"""Brown weather: explicit data, model, and analysis interfaces."""
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"

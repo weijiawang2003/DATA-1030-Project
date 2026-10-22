@@ -1,215 +1,136 @@
-"""Explicit stage orchestration. The default only describes the pipeline."""
+"""Preview configuration or explicitly collect and prepare local data."""
 
-from __future__ import annotations
-
-import importlib.metadata
 import json
-import platform
-from datetime import date, datetime, timezone
+from datetime import date
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-STAGES = ("plan", "collect", "prepare", "train", "eda", "plot", "all")
+STAGES = ("plan", "collect", "prepare")
+COLLECTION_KEYS = (
+    "location", "model", "timezone", "start_date", "end_date",
+    "precipitation_threshold_mm", "cloud_threshold_percent",
+)
 
 
-def _write_json(path, values):
-    path.write_text(json.dumps(values, indent=2, ensure_ascii=False) + "\n")
+def _save_json(path, value):
+    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
 
 
-def _context(config_path, mode, cities, project_root):
+def _dictionary(daily, samples, features, units, config):
+    """Describe saved sample columns without fitting a transformation."""
+    import pandas as pd
+
+    records = []
+    units = {**units, "temp_range": "°C"}
+    for column in dict.fromkeys([*daily.columns, *samples.columns]):
+        role = "predictor" if column in features else "metadata"
+        unit, description = units.get(column, "unitless"), column.replace("_", " ")
+        data_type = "numeric"
+        if column in units and column not in features:
+            role = "raw weather"
+        if column in features and "__" in column:
+            position, field = column.split("__", 1)
+            unit = units.get(field, "unitless")
+            if position.startswith("recent_lag_"):
+                context = f"target_date minus {int(position.removeprefix('recent_lag_'))} days"
+            else:
+                year, offset = position.removeprefix("history_y").split("_offset_")
+                signed_offset = int(offset[1:]) * (-1 if offset.startswith("m") else 1)
+                context = f"same-calendar anchor {year} years earlier, offset {signed_offset:+d} calendar days"
+            description = f"{field} at {context}"
+            if field == "weather_code":
+                data_type = "categorical"
+                description += "; WMO category, one-hot encoded later"
+            elif field in {"calendar_sin", "calendar_cos"}:
+                description += "; actual source month/day encoded on a fixed 366-day calendar"
+        elif column in {"target_calendar_sin", "target_calendar_cos"}:
+            description = "Known target month/day encoded on a fixed 366-day calendar; model input"
+        elif column == "weather_code":
+            role, data_type, description = "raw categorical", "categorical", "WMO weather code; copied as a category at each historical input position"
+        elif column == "weather_type":
+            unit, data_type = "category", "categorical"
+            description = "Derived Clear, Cloudy, or Precipitation label for EDA only; thresholds are recorded in config.json"
+        elif column == "target_mean_temperature":
+            role = "target"
+            unit, description = "°C", "Target-day actual mean temperature; never a model input"
+        elif column in {"date", "target_date"}:
+            unit, data_type = "ISO date", "date"
+            description = "Daily observation date; last input day in samples (target minus one day)" if column == "date" else "Prediction target day; API daily dates use " + config["timezone"]
+        elif column in {"city", "split"}:
+            unit, data_type = "category", "categorical"
+            description = "Configured location" if column == "city" else "Train, validation, or test, assigned by target_date"
+        elif column in {"history_days", "recent_days"}:
+            unit = "days"
+            description = "Prior-year date count" if column == "history_days" else "Recent date count"
+        records.append({"column": column, "role": role, "data_type": data_type, "unit": unit, "description": description})
+    return pd.DataFrame(records)
+
+
+def run_pipeline(stage="plan", config_path=None, project_root=None):
+    """No stage collects, prepares, trains, or analyzes data implicitly."""
+    if stage not in STAGES:
+        raise ValueError(f"Choose one of {STAGES}; model fitting is intentionally outside this runner")
     root = Path(project_root or PROJECT_ROOT).resolve()
     config = json.loads(Path(config_path or root / "config.json").read_text())
-    if mode not in config["modes"]:
-        raise ValueError(f"Unknown mode: {mode}")
-    period = config["modes"][mode]
-    dates = [date.fromisoformat(period[key]) for key in ("start", "train_end", "validation_end", "end")]
-    if not dates[0] < dates[1] < dates[2] < dates[3]:
-        raise ValueError("Require start < train_end < validation_end < end")
-    if config["timezone"] != "UTC":
-        raise ValueError("This starter uses reproducible UTC daily boundaries; timezone must be UTC")
-    configured = config["cities"]
-    if not configured or len({city["id"] for city in configured}) != len(configured):
-        raise ValueError("Configure at least one city, with unique city IDs")
-    selected = configured
-    if cities:
-        unknown = set(cities) - {city["id"] for city in configured}
-        if unknown:
-            raise ValueError(f"Unknown city IDs: {sorted(unknown)}")
-        selected = [city for city in configured if city["id"] in cities]
-    run_id = mode if len(selected) == len(configured) else mode + "_" + "-".join(city["id"] for city in selected)
-    return {
-        "root": root, "config": config, "period": period, "cities": selected,
-        "mode": mode, "run_id": run_id,
-        "raw_dir": root / "data/raw", "processed_dir": root / "data/processed" / run_id,
-        "result_dir": root / "results" / run_id, "figure_dir": root / "figures" / run_id,
-    }
-
-
-def _plan(context, include_svm, include_range):
-    run_id = context["run_id"]
-    return {
-        "stage": "plan", "run_id": run_id,
-        "cities": [city["name"] for city in context["cities"]],
-        "period": context["period"],
-        "options": {"include_svm": include_svm, "include_range": include_range},
-        "note": "Configuration preview only; no data collection, processing, training or plotting has run.",
-        "stages": [
-            {"stage": "collect", "input": "config.json and public API", "output": f"data/raw/ and data/processed/{run_id}/daily.csv"},
-            {"stage": "prepare", "input": f"data/processed/{run_id}/daily.csv", "output": "supervised.csv, data dictionary and split definitions"},
-            {"stage": "train", "input": "prepared samples and feature definitions", "output": f"results/{run_id}/"},
-            {"stage": "eda", "input": "saved daily data only", "output": f"figures/{run_id}/ (EDA only)"},
-            {"stage": "plot", "input": "saved data and model outputs", "output": f"figures/{run_id}/"},
-        ],
-    }
-
-
-def _prior_metadata(path, context, prerequisite):
-    if not path.exists():
-        raise FileNotFoundError(f"Missing {path.name}; explicitly run stage='{prerequisite}' first")
-    metadata = json.loads(path.read_text())
-    if metadata["config"] != context["config"] or metadata["selected_cities"] != [city["id"] for city in context["cities"]]:
-        raise ValueError(f"Configuration differs from saved artifacts; explicitly rerun stage='{prerequisite}'")
-    return metadata
-
-
-def _metadata(context):
-    return {
-        "completed_at_utc": datetime.now(timezone.utc).isoformat(),
-        "run_id": context["run_id"], "mode": context["mode"],
-        "config": context["config"], "period": context["period"],
-        "selected_cities": [city["id"] for city in context["cities"]],
-    }
-
-
-def _collect(context, offline, refresh):
-    import pandas as pd
-    from .data import collect_city
-
-    frames, checks, units = [], [], None
-    for city in context["cities"]:
-        daily, quality, current_units = collect_city(
-            city, context["period"], context["config"], context["raw_dir"], offline, refresh,
-        )
-        if units is not None and units != current_units:
-            raise ValueError("API units differ across cities")
-        frames.append(daily)
-        checks.append(quality)
-        units = current_units
-    folder = context["processed_dir"]
-    folder.mkdir(parents=True, exist_ok=True)
-    daily = pd.concat(frames, ignore_index=True)
-    daily.to_csv(folder / "daily.csv", index=False)
-    pd.DataFrame(checks).to_csv(folder / "data_quality.csv", index=False)
-    metadata = {**_metadata(context), "stage": "collect", "api_units": units, "daily_rows": len(daily)}
-    _write_json(folder / "collection_metadata.json", metadata)
-    return {"stage": "collect", "rows": len(daily), "output": f"data/processed/{context['run_id']}/daily.csv"}
-
-
-def _prepare(context):
-    import pandas as pd
-    from .data import build_supervised, data_dictionary
-
-    folder = context["processed_dir"]
-    collected = _prior_metadata(folder / "collection_metadata.json", context, "collect")
-    daily = pd.read_csv(folder / "daily.csv", parse_dates=["date"])
-    supervised, features = build_supervised(daily)
-    period = context["period"]
-    supervised["split"] = "test"
-    supervised.loc[supervised["target_date"].le(period["validation_end"]), "split"] = "validation"
-    supervised.loc[supervised["target_date"].le(period["train_end"]), "split"] = "train"
-    supervised.to_csv(folder / "supervised.csv", index=False)
-    dictionary = data_dictionary(daily, supervised, features, collected["api_units"], context["config"])
-    dictionary.to_csv(folder / "data_dictionary.csv", index=False)
-    split_summary = supervised.groupby(["city", "split"])["target_date"].agg(
-        rows="size", target_start="min", target_end="max",
-    ).reset_index()
-    split_summary.to_csv(folder / "splits.csv", index=False)
-    metadata = {
-        **_metadata(context), "stage": "prepare", "daily_rows": len(daily),
-        "supervised_rows": len(supervised), "feature_columns": features,
-    }
-    _write_json(folder / "preparation_metadata.json", metadata)
-    return {"stage": "prepare", "rows": len(supervised), "features": features}
-
-
-def _train(context, include_svm, include_range):
-    import pandas as pd
-    from .modeling import run_models
-
-    folder = context["processed_dir"]
-    prepared = _prior_metadata(folder / "preparation_metadata.json", context, "prepare")
-    supervised = pd.read_csv(folder / "supervised.csv", parse_dates=["date", "target_date"])
-    targets = ("temperature", "weather", "range") if include_range else ("temperature", "weather")
-    run_models(
-        supervised, prepared["feature_columns"], context["result_dir"],
-        train_end=context["period"]["train_end"], validation_end=context["period"]["validation_end"],
-        include_svm=include_svm, targets=targets, seed=context["config"]["seed"],
-    )
-    metadata = {
-        **_metadata(context), "stage": "train", "include_svm": include_svm, "include_range": include_range,
-        "targets": list(targets), "feature_columns": prepared["feature_columns"],
-        "daily_rows": prepared["daily_rows"], "supervised_rows": prepared["supervised_rows"],
-        "python_version": platform.python_version(),
-        "packages": {name: importlib.metadata.version(name) for name in ["numpy", "pandas", "scikit-learn", "scipy", "matplotlib", "requests", "joblib"]},
-        "experiment": "Retrospective ERA5 t to t+1 experiment; finalized inputs are not live observations",
-        "selection": "Hyperparameters and learned model family selected on validation only",
-    }
-    _write_json(context["result_dir"] / "run_metadata.json", metadata)
-    return {"stage": "train", "output": f"results/{context['run_id']}/"}
-
-
-def _eda(context):
-    """Explore collected data independently of model training."""
-    import pandas as pd
-    from .plots import plot_eda
-
-    _prior_metadata(context["processed_dir"] / "collection_metadata.json", context, "collect")
-    daily = pd.read_csv(context["processed_dir"] / "daily.csv", parse_dates=["date"])
-    plot_eda(daily, context["figure_dir"])
-    return {"stage": "eda", "output": f"figures/{context['run_id']}/"}
-
-
-def _plot(context):
-    import pandas as pd
-    from .plots import plot_model_results
-
-    _prior_metadata(context["result_dir"] / "run_metadata.json", context, "train")
-    _eda(context)
-    metrics = pd.read_csv(context["result_dir"] / "metrics.csv")
-    predictions = pd.read_csv(context["result_dir"] / "predictions.csv")
-    plot_model_results(metrics, predictions, context["figure_dir"])
-    return {"stage": "plot", "output": f"figures/{context['run_id']}/"}
-
-
-def run_pipeline(config_path=None, mode="full", cities=None, include_svm=False,
-                 include_range=False, offline=False, refresh=False,
-                 project_root=None, stage="plan"):
-    """Preview by default; execute only an explicitly requested stage.
-
-    collect -> prepare -> train -> plot are separate manual entry points.
-    eda only needs collected data and can run before training.
-    Missing prerequisites raise errors instead of launching earlier stages.
-    stage='all' explicitly opts into every stage for future use.
-    """
-    if stage not in STAGES:
-        raise ValueError(f"Unknown stage {stage!r}; choose {STAGES}")
-    if offline and refresh:
-        raise ValueError("offline and refresh cannot be combined")
-    context = _context(config_path, mode, cities, project_root)
-    plan = _plan(context, include_svm, include_range)
+    boundaries = [date.fromisoformat(config[key]) for key in ("start_date", "train_end", "validation_end", "end_date")]
+    if not boundaries[0] < boundaries[1] < boundaries[2] < boundaries[3]:
+        raise ValueError("Require start_date < train_end < validation_end < end_date")
+    ZoneInfo(config["timezone"])
+    for key in ("recent_days", "history_years", "seasonal_window_days"):
+        if type(config[key]) is not int or config[key] < 1:
+            raise ValueError(f"{key} must be a positive integer")
     if stage == "plan":
-        return plan
-    requested = ("collect", "prepare", "train", "plot") if stage == "all" else (stage,)
-    completed = []
-    for current in requested:
-        if current == "collect":
-            completed.append(_collect(context, offline, refresh))
-        elif current == "prepare":
-            completed.append(_prepare(context))
-        elif current == "train":
-            completed.append(_train(context, include_svm, include_range))
-        elif current == "eda":
-            completed.append(_eda(context))
-        else:
-            completed.append(_plot(context))
-    return {"stage": stage, "run_id": context["run_id"], "completed": completed}
+        return {
+            "stage": "plan", "location": config["location"],
+            "period": [config["start_date"], config["end_date"]],
+            "timezone": config["timezone"],
+            "features": {key: config[key] for key in ("recent_days", "history_years", "seasonal_window_days")},
+            "raw_feature_count": (config["recent_days"] + config["history_years"] * (2 * config["seasonal_window_days"] + 1)) * (15 + 2) + 2,
+            "target": "target_mean_temperature",
+            "splits": {key: config[key] for key in ("train_end", "validation_end")},
+            "interfaces": {"data": "collect, then prepare", "models": "build_models returns unfitted pipelines", "analysis": "explicit summary and plotting helpers"},
+            "note": "Preview only. No API request, processing, model fitting, or analysis has run.",
+        }
+
+    folder = root / "data/processed"
+    if stage == "collect":
+        from .data import collect_data
+
+        daily, quality, units = collect_data(config, root / "data/raw")
+        folder.mkdir(parents=True, exist_ok=True)
+        daily.to_csv(folder / "daily.csv", index=False)
+        _save_json(folder / "collection_metadata.json", {
+            "collection_config": {key: config[key] for key in COLLECTION_KEYS},
+            "quality": quality, "units": units,
+        })
+        return {"stage": stage, "rows": len(daily), "output": str(folder / "daily.csv")}
+
+    import pandas as pd
+    from .features import build_samples
+
+    metadata_path = folder / "collection_metadata.json"
+    if not metadata_path.is_file() or not (folder / "daily.csv").is_file():
+        raise FileNotFoundError("Run stage='collect' first; preparation never downloads data")
+    metadata = json.loads(metadata_path.read_text())
+    if metadata["collection_config"] != {key: config[key] for key in COLLECTION_KEYS}:
+        raise ValueError("Collection settings changed; explicitly run stage='collect' again")
+    daily = pd.read_csv(folder / "daily.csv", parse_dates=["date"])
+    samples, features = build_samples(daily, **{
+        key: config[key] for key in ("recent_days", "history_years", "seasonal_window_days")
+    })
+    if samples.empty:
+        raise ValueError("No labeled samples have complete recent and prior-year windows; check the collection period")
+    samples["split"] = "test"
+    samples.loc[samples.target_date.le(config["validation_end"]), "split"] = "validation"
+    samples.loc[samples.target_date.le(config["train_end"]), "split"] = "train"
+    samples.to_csv(folder / "samples.csv", index=False)
+    _save_json(folder / "feature_columns.json", features)
+    _dictionary(daily, samples, features, metadata["units"], config).to_csv(folder / "data_dictionary.csv", index=False)
+    _save_json(folder / "preparation_metadata.json", {
+        "config": config, "rows": len(samples), "feature_count": len(features),
+        "target": "target_mean_temperature",
+        "splits": samples.groupby("split").size().to_dict(),
+        "evaluation": "Rolling one-day retrospective experiment; only earlier observations enter each row. Model fitting and tuning remain separate.",
+    })
+    return {"stage": stage, "rows": len(samples), "feature_count": len(features), "output": str(folder / "samples.csv")}
