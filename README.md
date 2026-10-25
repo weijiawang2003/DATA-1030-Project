@@ -1,10 +1,12 @@
-# Brown Weather Framework
+# Brown Weather Project
 
-A basic DATA1030 pipeline for predicting the next day's mean temperature at Brown University (41.82682, −71.40293). This version contains the framework; data collection, EDA, model experiments, and the report remain pending.
+DATA1030 project for **next-day mean-temperature prediction** near Brown University (41.82682, -71.40293). Data collection and preliminary EDA are complete. Ridge and Random Forest pipelines are defined; model training and evaluation remain future work.
+
+[Midterm report](report/Report.pdf) · [Data dictionary](data/README.md)
 
 ## Run
 
-From this project folder:
+From the repository root:
 
 ```bash
 conda env create -f environment.yml
@@ -13,53 +15,50 @@ python -m pip install -e . --no-deps
 jupyter lab src/Weather_Project.ipynb
 ```
 
-**Run All previews the plan only.** In the notebook, uncomment `collect` to fetch data through the API, then `prepare` to construct samples. Model and analysis examples remain commented.
+The command-line interface offers three explicit stages:
+
+```bash
+python -m weather_project --stage plan
+python -m weather_project --stage collect
+python -m weather_project --stage prepare
+```
+
+The default `plan` only previews configuration. `collect` reuses the bundled raw response when its query matches `config.json`; otherwise it requests API data. `prepare` reads local daily data and creates samples and feature documentation without training models. Generated `samples.csv` is not committed; recreate it locally when needed.
 
 Environment: Python **3.14.6**; NumPy **2.4.6**, pandas **3.0.3**, scikit-learn **1.9.0**, Matplotlib **3.11.0**, requests **2.34.2**, JupyterLab **4.6.4**, ipykernel **7.3.0**. See [environment.yml](environment.yml) and [requirements.txt](requirements.txt).
 
-## Interfaces
+## Data and task
 
-| Interface | Entry points | Behavior |
-|---|---|---|
-| Data | `run_pipeline(stage="plan", project_root=ROOT)` | Preview; explicit `"collect"` and `"prepare"` stages. |
-| Models | `build_models(task="regression", seed=1030)` | Unfitted Ridge and Random Forest pipelines. |
-| Analysis | `data_overview(daily)`, `plot_temperature(daily)`, `plot_scores(scores, metric)` | Helpers for supplied data or future experiment scores. |
+Both collections use Open-Meteo ERA5 for Brown University, with `America/New_York` as the requested timezone. They have different scopes:
 
-## Data and prediction task
+| Collection | Dates, inclusive | Records | Weather fields | Location |
+| --- | --- | ---: | ---: | --- |
+| Modeling | 2001-01-01–2025-12-31 | 9,131 | 15 | `data/raw/`, `data/processed/daily.csv` |
+| Exploratory | 2006-01-01–2025-01-01 | 6,941 | 19 | `team_project_bill/data/BROWN-2006-2025.csv` |
 
-Collection is configured for **Open-Meteo ERA5, 2001–2025**, using `America/New_York`. Units, categories, API boundaries, and all column definitions are in the [data dictionary](data/README.md). Raw API responses and collection metadata preserve provenance. No dataset is bundled.
+The eight original Bill EDA figures are preserved unchanged in `figures/EDA/`. They describe the full exploratory period, including years assigned to validation and testing; they are not training-only EDA.
 
-For target date **d**, X retains individual observations from:
+For target day **d**, the only y is `target_mean_temperature` (°C). X contains 28 preceding days and seven-day windows around the corresponding month/day in each of five previous years: **63 positions**. Each holds 15 weather fields and two calendar encodings; two target-date encodings produce **63 × 17 + 2 = 1,073 raw predictors**, excluding metadata and y. WMO one-hot encoding and circular wind conversion change the transformed dimension.
 
-- **28 recent days:** d−28 through d−1.
-- **35 historical positions:** the same month/day in each of five preceding years, with **±3 days** around each anchor.
+All source dates precede d. February 29 anchors become February 28 in non-leap years. Complete contexts provide 7,302 eligible target dates, split chronologically:
 
-Each position contains 15 weather fields plus two month/day sine/cosine encodings, using reference year 2000 (366 days). Two target-date encodings give **63 × 17 + 2 = 1,073 raw predictors**, excluding metadata and y. These are four recent weeks plus five separate historical weeks.
+| Split | Target dates | Samples |
+| --- | --- | ---: |
+| Training | 2006-01-04–2017-12-31 | 4,380 |
+| Validation | 2018-01-01–2021-12-31 | 1,461 |
+| Test | 2022-01-01–2025-12-31 | 1,461 |
 
-February 29 anchors become February 28 in non-leap years. Windows may cross year boundaries and must precede d. Missing context dates exclude a sample; missing predictor values remain missing. Initial years provide historical context.
+This is a retrospective reanalysis study; live deployment would require timely weather observations. Future fitting should learn preprocessing from training data and use temporal validation for model and feature choices.
 
-The only y is **`target_mean_temperature`**. Select X with the generated `feature_columns.json`. Model preprocessing treats WMO codes as categories and converts wind direction to sine/cosine; the transformed dimension can differ from 1,073.
+## Repository
 
-Split by **target date**: training through **2019-12-31**, validation **2020–2022**, test **2023–2025**. This is a rolling one-day retrospective reanalysis experiment. Earlier observed validation/test days can supply later inputs; preprocessing fits on training data, tuning uses validation, and final evaluation uses the reserved test period.
+- `src/`: notebook, reusable modules, and offline tests.
+- `data/`: raw cache, daily table, metadata, and column documentation.
+- `figures/EDA/`: eight original explanatory figures.
+- `results/`: placeholder for future predictions, scores, and models.
+- `report/Report.pdf`: current midterm report.
+- `team_project_bill/`: the team's original exploratory collection and scripts.
 
-## Repository and remaining work
+Offline framework checks: `python -m unittest discover -s src/tests -v`.
 
-| Folder | Contents |
-|---|---|
-| `src/` | Notebook, data/model/analysis modules, offline tests |
-| `data/` | Static dictionary; `raw/` and `processed/` start empty |
-| `figures/` | Future saved figures |
-| `results/` | Future predictions, scores, and models |
-| `report/` | Future report PDF |
-
-Explicit `collect` generates the raw cache, `daily.csv`, and collection metadata. Explicit `prepare` generates `samples.csv`, `feature_columns.json`, `data_dictionary.csv`, and preparation metadata under `data/processed/`.
-
-Before midterm submission: collect and check data; produce at least **three explained EDA figures**; complete the required report and references. The notebook lists three pending EDA ideas. This scaffold alone is not a completed midterm submission.
-
-For GitHub, upload this folder's contents, make the repository public, and add all team members as collaborators. Offline framework checks:
-
-```bash
-python -m unittest discover -s src/tests -v
-```
-
-Weather data: [Open-Meteo / Copernicus ERA5](https://open-meteo.com/en/docs/historical-weather-api), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Code: [MIT](LICENSE).
+Weather data by [Open-Meteo.com](https://open-meteo.com/) and Copernicus ERA5, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Data are transformed into project features and figures. Code uses the [MIT License](LICENSE).

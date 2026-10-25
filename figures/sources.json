@@ -1,0 +1,58 @@
+[
+  {
+    "figure": 1,
+    "file": "EDA/01_mean_temperature_over_time.jpg",
+    "original_path": "team_project_bill/figures/EDA/temperature/time_series_EDA/temperature_2m_mean.jpg",
+    "source_commit": "bb69ecf6afbb672e338c82d00072e8c3006a6d3a",
+    "git_blob_sha": "04775e6abf59a2a598346b6bc03b69eb6b3d11a9"
+  },
+  {
+    "figure": 2,
+    "file": "EDA/02_mean_temperature_distribution.jpg",
+    "original_path": "team_project_bill/figures/EDA/temperature/single_attribute_EDA/temperature_2m_mean.jpg",
+    "source_commit": "bb69ecf6afbb672e338c82d00072e8c3006a6d3a",
+    "git_blob_sha": "526cb36ca39e847e606a5e23eacdb18721291e3b"
+  },
+  {
+    "figure": 3,
+    "file": "EDA/03_absolute_correlation_matrix.jpg",
+    "original_path": "team_project_bill/figures/EDA/temperature/correlation_EDA/X1_y1.jpg",
+    "source_commit": "bb69ecf6afbb672e338c82d00072e8c3006a6d3a",
+    "git_blob_sha": "174abd8ef2f43b3b786d7658e152fb0263ccde4f"
+  },
+  {
+    "figure": 4,
+    "file": "EDA/04_daylight_and_mean_temperature.jpg",
+    "original_path": "team_project_bill/figures/EDA/temperature/Xy_EDA/daylight_duration__temperature_2m_mean.jpg",
+    "source_commit": "bb69ecf6afbb672e338c82d00072e8c3006a6d3a",
+    "git_blob_sha": "4a1a68f2d182af5aa58852d074821a0e457f1bbe"
+  },
+  {
+    "figure": 5,
+    "file": "EDA/05_radiation_and_mean_temperature.jpg",
+    "original_path": "team_project_bill/figures/EDA/temperature/Xy_EDA/shortwave_radiation_sum__temperature_2m_mean.jpg",
+    "source_commit": "bb69ecf6afbb672e338c82d00072e8c3006a6d3a",
+    "git_blob_sha": "cc607a693edbc37aef25f18d42ff7fa5f86c7c15"
+  },
+  {
+    "figure": 6,
+    "file": "EDA/06_precipitation_distribution.jpg",
+    "original_path": "team_project_bill/figures/EDA/temperature/single_attribute_EDA/precipitation_sum.jpg",
+    "source_commit": "bb69ecf6afbb672e338c82d00072e8c3006a6d3a",
+    "git_blob_sha": "91ffc8d2b7c5557f2f0c336e5a48c887614686a3"
+  },
+  {
+    "figure": 7,
+    "file": "EDA/07_rain_and_total_precipitation.jpg",
+    "original_path": "team_project_bill/figures/EDA/temperature/XX_EDA/precipitation_sum__rain_sum.jpg",
+    "source_commit": "bb69ecf6afbb672e338c82d00072e8c3006a6d3a",
+    "git_blob_sha": "605d2ce2d3bb05bde8139a38d7b8b659ed95c662"
+  },
+  {
+    "figure": 8,
+    "file": "EDA/08_mean_temperature_by_weather_code.jpg",
+    "original_path": "team_project_bill/figures/EDA/temperature/Xy_EDA/weather_code__temperature_2m_mean.jpg",
+    "source_commit": "bb69ecf6afbb672e338c82d00072e8c3006a6d3a",
+    "git_blob_sha": "2a8950e41386b6deb11d072a30dd9c5381cb731c"
+  }
+]

@@ -1,0 +1,52 @@
+{
+  "collection_config": {
+    "location": {
+      "id": "brown",
+      "name": "Brown University",
+      "latitude": 41.82682,
+      "longitude": -71.40293
+    },
+    "model": "era5",
+    "timezone": "America/New_York",
+    "start_date": "2001-01-01",
+    "end_date": "2025-12-31",
+    "precipitation_threshold_mm": 1.0,
+    "cloud_threshold_percent": 40.0
+  },
+  "quality": {
+    "city": "Brown University",
+    "rows": 9131,
+    "api_variable_count": 15,
+    "start_date": "2001-01-01",
+    "end_date": "2025-12-31",
+    "duplicate_dates": 0,
+    "missing_weather_values": 0,
+    "requested_latitude": 41.82682,
+    "requested_longitude": -71.40293,
+    "grid_latitude": 41.75,
+    "grid_longitude": -71.5,
+    "grid_elevation_m": 42.0,
+    "timezone": "America/New_York",
+    "utc_offset_seconds": -14400,
+    "cache_file": "brown_2001-01-01_2025-12-31.json",
+    "fetched_at_utc": "2026-10-18T03:47:11.252017+00:00"
+  },
+  "units": {
+    "time": "iso8601",
+    "temperature_2m_mean": "°C",
+    "temperature_2m_max": "°C",
+    "temperature_2m_min": "°C",
+    "relative_humidity_2m_mean": "%",
+    "pressure_msl_mean": "hPa",
+    "cloud_cover_mean": "%",
+    "precipitation_sum": "mm",
+    "rain_sum": "mm",
+    "snowfall_sum": "cm",
+    "precipitation_hours": "h",
+    "wind_speed_10m_max": "km/h",
+    "wind_direction_10m_dominant": "°",
+    "shortwave_radiation_sum": "MJ/m²",
+    "daylight_duration": "s",
+    "weather_code": "wmo code"
+  }
+}

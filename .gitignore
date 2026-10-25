@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+*.egg-info/
+.venv/
+.DS_Store
+.idea/
+.vscode/
+
+# Rebuild the large historical feature table with the prepare stage.
+data/processed/samples.csv

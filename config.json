@@ -12,8 +12,8 @@
   "recent_days": 28,
   "history_years": 5,
   "seasonal_window_days": 3,
-  "train_end": "2019-12-31",
-  "validation_end": "2022-12-31",
+  "train_end": "2017-12-31",
+  "validation_end": "2021-12-31",
   "precipitation_threshold_mm": 1.0,
   "cloud_threshold_percent": 40.0,
   "seed": 1030
