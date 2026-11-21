@@ -1,4 +1,4 @@
-"""Shared data, model settings and time-ordered evaluation for the two notebooks."""
+"""Shared data, model settings and time-ordered evaluation for the regression notebooks."""
 from pathlib import Path
 import hashlib
 import json
@@ -25,7 +25,7 @@ MODELS = ['Baseline', 'LinearRegression', 'Ridge', 'KNN', 'Lasso', 'ElasticNet',
           'SVR', 'NN', 'RandomForest', 'Poly', 'Poly Ridge', 'Poly Lasso']
 LINEAR = {'Baseline', 'LinearRegression', 'Ridge', 'Lasso', 'ElasticNet'}
 SETTINGS = ['Recent 28', 'Calendar only', 'Recent + calendar', 'History + calendar',
-            'Recent + history + calendar']
+            'History only', 'Recent + history', 'Recent + history + calendar']
 
 
 def read_weather():
@@ -47,9 +47,12 @@ def calendar_pair(index):
 
 
 class Inputs:
-    def __init__(self, part):
-        if part not in (1, 2):
-            raise ValueError('part must be 1 or 2')
+    def __init__(self, part, recent_days=28):
+        if part not in (1, 2, 3):
+            raise ValueError('part must be 1, 2 or 3')
+        if not 1 <= recent_days <= 28 or (part != 3 and recent_days != 28):
+            raise ValueError('Part 3 accepts lookbacks from 1 to 28 days')
+        self.recent_days = recent_days
         self.part = part
         self.weather = read_weather()
         index = self.weather.index
@@ -57,7 +60,7 @@ class Inputs:
         bill_dates = index[7:]
         self.test_start = bill_dates[int(len(bill_dates) * .8)]
         dates = index[28:]
-        if part == 2:
+        if part in (2, 3):
             start = index.min() + pd.DateOffset(years=5) + pd.Timedelta(days=3)
             dates = dates[dates >= start]
         self.dates = dates
@@ -65,7 +68,7 @@ class Inputs:
         self.settings = list(range(1, 29)) if part == 1 else SETTINGS
         self.recent = [dates - pd.Timedelta(days=d) for d in range(1, 29)]
         self.history = []
-        if part == 2:
+        if part in (2, 3):
             for year in range(1, 6):
                 # DateOffset maps Feb 29 to Feb 28 in a non-leap anchor year.
                 anchor = dates - pd.DateOffset(years=year)
@@ -75,13 +78,13 @@ class Inputs:
                 raise ValueError('Weather window contains unavailable or future dates')
 
     def matrix(self, setting, baseline=False):
-        k = setting if self.part == 1 else 28
+        k = setting if self.part == 1 else self.recent_days
         if baseline:
-            # Same comparator for every Part 2 setting.
+            # Same comparator for every calendar/history setting.
             return np.column_stack([self.weather.loc[d, TARGET] for d in self.recent[:k]]), []
-        with_calendar = self.part == 2 and setting != 'Recent 28'
-        recent = self.part == 1 or setting in ('Recent 28', 'Recent + calendar', SETTINGS[-1])
-        history = self.part == 2 and setting in ('History + calendar', SETTINGS[-1])
+        with_calendar = self.part in (2, 3) and 'calendar' in setting.lower()
+        recent = self.part == 1 or setting in ('Recent 28', 'Recent + calendar', 'Recent + history', 'Recent + history + calendar')
+        history = self.part in (2, 3) and setting in ('History only', 'History + calendar', 'Recent + history', 'Recent + history + calendar')
         sources = (self.recent[:k] if recent else []) + (self.history if history else [])
         columns, binary = [], []
         if sources:
@@ -147,6 +150,8 @@ def evaluate(inputs, models, settings=None, test=False):
         signature.update(file.read_bytes())
     signature.update(str((np.__version__, pd.__version__, sklearn.__version__, scipy.__version__)).encode())
     cache = HERE / '.runs' / signature.hexdigest()[:16] / f'part{inputs.part}'
+    if inputs.part == 3:
+        cache = cache / f'lookback{inputs.recent_days}'
     cache.mkdir(parents=True, exist_ok=True)
     rows = []
     for setting in (inputs.settings if settings is None else settings):
@@ -156,7 +161,7 @@ def evaluate(inputs, models, settings=None, test=False):
             if model not in MODELS:
                 raise ValueError(f'Unknown model: {model}')
             X = None
-            key = 'reference' if inputs.part == 2 and model == 'Baseline' else str(setting)
+            key = 'reference' if inputs.part in (2, 3) and model == 'Baseline' else str(setting)
             for fold, (train, valid) in enumerate(inputs.splits(test), 1):
                 seeds = range(5) if test and model in ('NN','RandomForest') else [42]
                 for seed in seeds:
@@ -185,3 +190,18 @@ def summarize(scores):
     return scores.groupby(['model', 'setting'], sort=False).agg(
         cv_rmse=('rmse','mean'), fold_sd=('rmse','std'), mae=('mae','mean'),
         folds=('fold','nunique'), convergence_warning=('convergence_warning','any')).reset_index()
+
+
+def best_lookbacks(scores):
+    """Select the shortest window among any ties in Notebook 1 validation."""
+    lag_scores = scores.loc[scores.part.eq(1)].copy()
+    lag_scores['setting'] = lag_scores.setting.astype(int)
+    summary = summarize(lag_scores)
+    counts = lag_scores.groupby(['model', 'setting']).size()
+    expected = pd.MultiIndex.from_product([MODELS, range(1, 29)])
+    if (not counts.reindex(expected).eq(5).all()
+            or not summary.folds.eq(5).all()
+            or not np.isfinite(summary.cv_rmse).all()):
+        raise ValueError('Expected five validation folds for each Notebook 1 model and lookback')
+    ranked = summary.sort_values(['cv_rmse', 'setting'])
+    return ranked.drop_duplicates('model').set_index('model').setting.reindex(MODELS)
